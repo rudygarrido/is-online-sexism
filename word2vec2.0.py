@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import precision_score, recall_score
+from sklearn.metrics import precision_score, recall_score, f1_score
 
 pd.set_option('display.max_colwidth', 100)
 
@@ -55,5 +55,6 @@ y_pred = rf_model.predict(X_test_vect_avg)
 
 precision = precision_score(y_test, y_pred)
 recall = recall_score(y_test, y_pred)
-print('Precision: {} / Recall: {} / Accuracy: {}'.format(
-    round(precision, 3), round(recall, 3), round((y_pred==y_test).sum()/len(y_pred), 3)))
+f1 = f1_score(y_test, y_pred)
+print('Precision: {} / Recall: {} / Accuracy: {} / F1: {}'.format(
+    round(precision, 3), round(recall, 3), round((y_pred==y_test).sum()/len(y_pred), 3), round(f1,3)))

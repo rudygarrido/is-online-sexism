@@ -5,20 +5,25 @@ import torch.nn.functional as F
 import torch.optim as optim
 import pandas as pd
 from collections import Counter
+from torchmetrics.classification import MulticlassPrecision, MulticlassRecall, MulticlassF1Score
 
 from pandas import Index
 from sklearn.model_selection import train_test_split
+import numpy as np
+from sklearn.metrics import confusion_matrix
 
 torch.manual_seed(1)
-random_state_value = 56
-test_split = 0.20
+random_state_value = 86
+test_split = 0.30
 val_split = 0.12
+num_epochs = 3
+
 
 def prepare_sequence(seq, to_ix):
     idxs = [to_ix[w] for w in seq]
     return torch.tensor(idxs, dtype=torch.long)
 
-def index_words(x, y, test_sentence, skip_top = 0):
+def index_words(x, y, test_sentence, skip_top=0):
     max_array_size = 0
     tokens = [nltk.word_tokenize(sentence) for sentence in x]
     tokens_counted = Counter([item for sublist in tokens for item in sublist])
@@ -50,39 +55,18 @@ df = pd.read_csv('train_all_tasks.csv')
 x = df.loc[:, "text"]
 y = df.loc[:, "label_category"]
 test_sentence = "I hate women so much"
-x, y, max_words, tokens_size, test_sentence = index_words(x, y, test_sentence)
+x, y, max_words, tokens_size, test_sentence = index_words(x, y, test_sentence, 10)
 
 x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_split, random_state=random_state_value,
                                                     shuffle=True, stratify=y)
 
-#x_train, x_val, y_train, y_val = train_test_split(x_train, y_train, test_size=val_split,
-#                                                  random_state=random_state_value, shuffle=True, stratify=y_train)
-"""
-training_data = [
-    # Tags are: DET - determiner; NN - noun; V - verb
-    # For example, the word "The" is a determiner
-    ("The dog ate the apple".split(), ["DET", "NN", "V", "DET", "NN"]),
-    ("Everybody read that book".split(), ["NN", "V", "DET", "NN"])
-]
-
-
-training_data = pd.merge(x_train, y_train, left_index=True, right_index=True)
-#pd.concat([x_train, y_train], axis=1)
-#pd. merge(x_train, y_train, left_index=True, right_index=True)
-word_to_ix = {}
-# For each words-list (sentence) and tags-list in each tuple of training_data
-for sent, tags in training_data:
-    for word in sent:
-        if word not in word_to_ix:  # word has not been assigned an index yet
-            word_to_ix[word] = len(word_to_ix)  # Assign each word with a unique index
-print(word_to_ix)
-"""
-tag_to_ix = {"None": 0, "Threats": 1, "Derogation": 2,  "Animosity": 3, "Prejudice": 4}  # Assign each tag with a unique index
+tag_to_ix = {"None": 0, "Threats": 1, "Derogation": 2, "Animosity": 3,
+             "Prejudice": 4}  # Assign each tag with a unique index
 
 # These will usually be more like 32 or 64 dimensional.
 # We will keep them small, so we can see how the weights change as we train.
 EMBEDDING_DIM = 32
-HIDDEN_DIM = 32
+HIDDEN_DIM = 64
 
 print(torch.tensor(test_sentence, dtype=torch.long))
 
@@ -101,12 +85,13 @@ class LSTMTagger(nn.Module):
         # The linear layer that maps from hidden state space to tag space
         self.hidden2tag = nn.Linear(hidden_dim, tagset_size)
 
-    def forward(self, sentence):
-        embeds = self.word_embeddings(sentence)
-        lstm_out, _ = self.lstm(embeds.view(len(sentence), 1, -1))
-        tag_space = self.hidden2tag(lstm_out.view(len(sentence), -1))
-        tag_scores = F.log_softmax(tag_space, dim=1)
-        return tag_scores
+    def forward(self, sentence_in):
+        embeds = self.word_embeddings(sentence_in)
+        lstm_out, _ = self.lstm(embeds.view(len(sentence_in), 1, -1))
+        tag_space = self.hidden2tag(lstm_out.view(len(sentence_in), -1))
+        tag_scores_forward = F.log_softmax(tag_space, dim=1)
+        return tag_scores_forward
+
 
 model = LSTMTagger(EMBEDDING_DIM, HIDDEN_DIM, tokens_size, len(tag_to_ix))
 loss_function = nn.NLLLoss()
@@ -120,7 +105,7 @@ with torch.no_grad():
     tag_scores = model(inputs)
     print(tag_scores)
 
-for epoch in range(25):  # again, normally you would NOT do 300 epochs, it is toy data
+for epoch in range(num_epochs):  # again, normally you would NOT do 300 epochs, it is toy data
     for index, sentence in x_train.items():
         # Step 1. Remember that Pytorch accumulates gradients.
         # We need to clear them out before each instance
@@ -128,11 +113,11 @@ for epoch in range(25):  # again, normally you would NOT do 300 epochs, it is to
 
         # Step 2. Get our inputs ready for the network, that is, turn them into
         # Tensors of word indices.
-        sentence_in = torch.tensor(sentence, dtype=torch.long)
+        sentence = torch.tensor(sentence, dtype=torch.long)
         targets = torch.tensor([y_train.loc[index]] * len(sentence), dtype=torch.long)
 
         # Step 3. Run our forward pass.
-        tag_scores = model(sentence_in)
+        tag_scores = model(sentence)
 
         # Step 4. Compute the loss, gradients, and update the parameters by
         #  calling optimizer.step()
@@ -140,16 +125,34 @@ for epoch in range(25):  # again, normally you would NOT do 300 epochs, it is to
         loss.backward()
         optimizer.step()
 
-model.eval()
-total_acc, total_count = 0, 0
+#model.eval()
+total_acc, total_count, precision, recall, f1 = 0, 0, 0, 0, 0
 # See what the scores are after training
 with torch.no_grad():
     for index, sentence in x_test.items():
         predicted_label = model(torch.tensor(sentence, dtype=torch.long))
         label = torch.tensor([y_test.loc[index]] * len(sentence), dtype=torch.long)
         loss = loss_function(predicted_label, label)
+        prediction, inds = torch.max(predicted_label, dim=1)
+        prediction[prediction < 0] = 0
+
+        if (torch.count_nonzero(prediction) > 0):
+            print("NON ZERO")
+
+        # cm = confusion_matrix(label, prediction.type(torch.int64))
+        precision_metric = MulticlassPrecision(num_classes=5)
+        precision += precision_metric(prediction.type(torch.int64), label)
+
+        recall_metric = MulticlassRecall(num_classes=5)
+        recall += recall_metric(prediction.type(torch.int64), label)
+
+        f1_metric = MulticlassF1Score(num_classes=5)
+        f1 += f1_metric(prediction.type(torch.int64), label)
+
         total_acc += (predicted_label.argmax(1) == label).sum().item()
         total_count += label.size(0)
 
-print(total_acc/total_count)
-
+print(total_acc / total_count)
+print(precision / len(x_test))
+print(recall / len(x_test))
+print(f1 / len(x_test))
