@@ -1,6 +1,6 @@
 import torch
 from transformers import AutoTokenizer, DataCollatorWithPadding, AutoModelForSequenceClassification, \
-    TrainingArguments, Trainer
+    TrainingArguments, Trainer, AutoConfig
 import pandas as pd
 import evaluate
 import numpy as np
@@ -74,7 +74,8 @@ f1_metric = evaluate.load("f1")
 recall_metric = evaluate.load("recall")
 precision_metric = evaluate.load("precision")
 accuracy_metric = evaluate.load("accuracy")
-tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+config = AutoConfig.from_pretrained("distilbert-base-uncased")
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased", config=config)
 dataset = pd.read_csv('train_all_tasks.csv')
 dataset.drop(labels=["rewire_id", "label_category", "label_sexist"], axis=1, inplace=True)
 dataset.rename(columns={"label_vector": "label"}, inplace=True)
@@ -111,7 +112,8 @@ test_dataset = SexismDatasset(test_encodings, test_labels)
 
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
-model = AutoModelForSequenceClassification.from_pretrained(
+def model_init():
+    return AutoModelForSequenceClassification.from_pretrained(
     "distilbert-base-uncased", num_labels=12, id2label=id2label, label2id=label2id
 )
 
@@ -129,7 +131,7 @@ training_args = TrainingArguments(
 )
 
 trainer = Trainer(
-    model=model,
+    model_init=model_init,
     args=training_args,
     train_dataset=train_dataset,
     eval_dataset=test_dataset,
@@ -138,7 +140,13 @@ trainer = Trainer(
     compute_metrics=compute_metrics,
 )
 
-trainer.train()
+trainer.hyperparameter_search(
+    direction="maximize",
+    backend="ray",
+    n_trials=2
+)
+
+#trainer.train()
 """
 eval_results = metrics.compute(
     model_or_pipeline=model,
@@ -158,6 +166,7 @@ print(accuracy_metric)
 inputs = tokenizer("Black women have too much privilege, they do not need any reparations", return_tensors="pt")
 
 with torch.no_grad():
+    model = model_init()
     logits = model(**inputs).logits
     predicted_class_id = logits.argmax().item()
     print(model.config.id2label[predicted_class_id])
