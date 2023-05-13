@@ -176,7 +176,7 @@ def train(config, num_epochs = 10, checkpoint_dir=None):
             torch.save((model.state_dict(), optimizer.state_dict()), path)
 
         tune.report(loss=(val_loss / val_steps), accuracy=correct / total,
-                    precision=(precision/len(x_test)).item(), recall=(recall/len(x_test)).item(), f1=(f1/len(x_test))).item()
+                    precision=(precision/len(x_test)), recall=(recall/len(x_test)), f1=(f1/len(x_test)))
     print("Finished Training")
 
 
