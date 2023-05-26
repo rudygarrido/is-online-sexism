@@ -1,156 +1,55 @@
-# This is a sample Python script.
-
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
-'''Trains and evaluate a simple MLP
-on the Reuters newswire topic classification task.
-'''
-from __future__ import print_function
-
-import nltk
+import gensim
 import numpy as np
 import pandas as pd
-import keras
-from keras.models import Sequential
-from keras.layers import Dense, Dropout, Activation
-from keras.preprocessing.text import Tokenizer
-from keras.datasets import reuters
-from keras import utils as np_utils
-from nltk.tokenize import word_tokenize
-from collections import Counter
-import csv
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import precision_score, recall_score, f1_score
 
-def equalize_samples (x_positive, x_negative, test_split):
-    x_train_positive = x_positive[:int(len(x_positive) * (1 - test_split))]
-    x_train_negative = x_negative[:int(len(x_negative) * (1 - test_split))]
-    x_train = pd.concat([x_train_positive, x_train_negative])
-    y_train = pd.concat([pd.Series(1, index=range(len(x_train_positive))),
-                         pd.Series(0, index=range(len(x_train_negative)))])
+pd.set_option('display.max_colwidth', 100)
 
-    x_test_positive = x_positive[int(len(x_positive) * (1 - test_split)):]
-    x_test_negative = x_negative[int(len(x_negative) * (1 - test_split)):]
-    x_test = pd.concat([x_test_positive, x_test_negative])
-    y_test = pd.concat([pd.Series(1, index=range(len(x_test_positive))),
-                        pd.Series(0, index=range(len(x_test_negative)))])
+messages = pd.read_csv('train_all_tasks.csv', encoding='latin-1')
+messages = messages.drop(labels = ["rewire_id", "label_category", "label_vector"], axis = 1)
+messages.columns = ["text", "label_sexist"]
 
+messages['text_clean'] = messages['text'].apply(lambda x: gensim.utils.simple_preprocess(x))
 
-    return x_train, y_train, x_test, y_test
+messages['label_sexist']=messages['label_sexist'].map({'sexist':1,'not sexist':0})
 
-def index_words(x, y, skip_top, use_previous = True):
-    max_array_size = 0
-    x_positive = pd.Series()
-    x_negative = pd.Series()
-    tokens = [ nltk.word_tokenize(sentence) for sentence in x ]
-    tokens_counted = Counter([item for sublist in tokens for item in sublist])
-    if skip_top > 0:
-        skip_tokens = []
-        top_tokens = tokens_counted.most_common()[0: skip_top]
-        for token in top_tokens:
-            skip_tokens.append(token[0])
-    for i in range(0, len(x)):
-        token = tokens[i]
-        max_array_size = len(token) if len(token) > max_array_size else max_array_size
-        token_indexed = []
-        for token_word in token:
-            if skip_top > 0 and token_word in skip_tokens:
-                continue
-            token_indexed.append(tokens_counted[token_word])
-        x[i] = token_indexed
-        if y[i] == 'sexist':
-            y[i] = 1
-            x_positive = pd.concat([x_positive, pd.Series([token_indexed])])
-        else:
-            y[i] = 0
-            x_negative = pd.concat([x_negative,pd.Series([token_indexed])])
-    return x_positive, x_negative , max_array_size
-    #return x, y  , max_array_size
+X_train, X_test, y_train, y_test = train_test_split (messages['text_clean'], messages['label_sexist'] , test_size=0.2)
 
+w2v_model = gensim.models.Word2Vec(X_train,
+                                   vector_size=100,
+                                   window=5,
+                                   min_count=2)
 
-def word2vec():
-    batch_size = 32
-    epochs = 5
-    skip_top = 40
-    test_split = 0.3
-    num_test = 5
-    sum_accuracy = 0
-    with open('results.csv', 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile, delimiter=';',
-                            quotechar='|', quoting=csv.QUOTE_MINIMAL)
-        writer.writerow(['Test', 'Score', 'Accuracy'])
-        for test in range(num_test):
-            print('Loading data...')
+words = set(w2v_model.wv.index_to_key )
+X_train_vect = np.array([np.array([w2v_model.wv[i] for i in ls if i in words])
+                         for ls in X_train])
 
-            df = pd.read_csv('train_all_tasks.csv')
+X_test_vect = np.array([np.array([w2v_model.wv[i] for i in ls if i in words])
+                         for ls in X_test])
 
-            x = df.loc[:, "text"]
-            y = df.loc[:, "label_sexist"]
+X_train_vect_avg = []
+for v in X_train_vect:
+    if v.size:
+        X_train_vect_avg.append(v.mean(axis=0))
+    else:
+        X_train_vect_avg.append(np.zeros(100, dtype=float))
 
-            #x, y, max_words = index_words(x, y, skip_top)
-            x_positive, x_negative, max_words = index_words(x, y, skip_top)
-            x_train, y_train, x_test, y_test = equalize_samples(x_positive, x_negative, test_split)
+X_test_vect_avg = []
+for v in X_test_vect:
+    if v.size:
+        X_test_vect_avg.append(v.mean(axis=0))
+    else:
+        X_test_vect_avg.append(np.zeros(100, dtype=float))
 
-            """
-            x_train = x[:int(len(x) * (1 - test_split))]
-            y_train = y[:int(len(y) * (1 - test_split))]
-            x_test = x[int(len(x) * (1 - test_split)):]
-            y_test = y[int(len(y) * (1 - test_split)):]
-            """
+rf = RandomForestClassifier(bootstrap=True, random_state=42, n_estimators=2)
+rf_model = rf.fit(X_train_vect_avg, y_train.values.ravel())
 
-            """""
-            (x_train, y_train), (x_test, y_test) = reuters.load_data(num_words=max_words,
-                                                                     test_split=test_split, skip_top=skip_top)
-            """""
-            print(len(x_train), 'train sequences')
-            print(len(x_test), 'test sequences')
+y_pred = rf_model.predict(X_test_vect_avg)
 
-            num_classes = np.max(y_train) + 1  # 2
-            print(num_classes, 'classes')
-
-            print('Vectorizing sequence data...')
-            tokenizer = Tokenizer(num_words=max_words)
-            x_train = tokenizer.sequences_to_matrix(x_train, mode='binary')
-            x_test = tokenizer.sequences_to_matrix(x_test, mode='binary')
-            print('x_train shape:', x_train.shape)
-            print('x_test shape:', x_test.shape)
-
-            print('Convert class vector to binary class matrix '
-                  '(for use with categorical_crossentropy)')
-            y_train = keras.utils.np_utils.to_categorical(y_train, num_classes)
-            y_test = keras.utils.np_utils.to_categorical(y_test, num_classes)
-            print('y_train shape:', y_train.shape)
-            print('y_test shape:', y_test.shape)
-
-            print('Building model...')
-            model = Sequential()
-            model.add(Dense(512, input_shape=(max_words,)))
-            model.add(Activation('relu'))
-            model.add(Dropout(0.5))
-            model.add(Dense(num_classes))
-            model.add(Activation('softmax'))
-
-            model.compile(loss='categorical_crossentropy',
-                          optimizer='adam',
-                          metrics=['accuracy'])
-
-            model.fit(x_train, y_train,
-                                batch_size=batch_size,
-                                epochs=epochs,
-                                verbose=1,
-                                validation_split=0.1)
-            score = model.evaluate(x_test, y_test,
-                                   batch_size=batch_size, verbose=1)
-
-            writer.writerow([test, score[0], score[1]])
-            print('Test number ', test)
-            print('Test score:', score[0])
-            print('Test accuracy:', score[1])
-            sum_accuracy += score[1]
-        print('Mean accuracy: ', sum_accuracy / num_test)
-
-
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    word2vec()
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+precision = precision_score(y_test, y_pred)
+recall = recall_score(y_test, y_pred)
+f1 = f1_score(y_test, y_pred)
+print('Precision: {} / Recall: {} / Accuracy: {} / F1: {}'.format(
+    round(precision, 3), round(recall, 3), round((y_pred==y_test).sum()/len(y_pred), 3), round(f1,3)))

@@ -55,21 +55,9 @@ def compute_metrics(eval_pred):
     results.update(precision_metric.compute(predictions=predictions, references=labels, average=METRICS_AVERAGE_TYPE))
     results.update(accuracy_metric.compute(predictions=predictions, references=labels))
 
-    # return metrics.compute(predictions=predictions, references=labels, average='micro')
     return results
 
 
-def preprocess_function(text):
-    '''for index in data.index:
-        tokenized = tokenizer(data.iloc[index]["text"], truncation=True)
-        data.loc[index, "text"] = tokenized
-        #data[index] = data[index].apply(lambda x: tokenizer(data.iloc[index]["text"], truncation=True))
-    return data
-    '''
-    return tokenizer(text, truncation=True)
-
-
-# metrics = evaluate.combine(["accuracy", "f1", "precision", "recall"])
 f1_metric = evaluate.load("f1")
 recall_metric = evaluate.load("recall")
 precision_metric = evaluate.load("precision")
@@ -97,18 +85,13 @@ train, test = train_test_split(dataset, test_size=0.2, shuffle=True)
 train_texts, train_labels = train["text"].tolist(), train["label"].tolist()
 test_texts, test_labels = test["text"].tolist(), test["label"].tolist()
 
-#train_texts, val_texts, train_labels, val_labels = train_test_split(train_texts, train_labels, test_size=.2)
 
 train_encodings = tokenizer(train_texts, truncation=True, padding=True)
-#val_encodings = tokenizer(val_texts, truncation=True, padding=True)
 test_encodings = tokenizer(test_texts, truncation=True, padding=True)
 
 train_dataset = SexismDatasset(train_encodings, train_labels)
-#val_dataset = SexismDatasset(val_encodings, val_labels)
 test_dataset = SexismDatasset(test_encodings, test_labels)
 
-# dataset = preprocess_function(dataset)
-# dataset["text"] = dataset["text"].apply(preprocess_function)
 
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
@@ -146,27 +129,7 @@ trainer.hyperparameter_search(
     n_trials=2
 )
 
-#trainer.train()
-"""
-eval_results = metrics.compute(
-    model_or_pipeline=model,
-    data=val_dataset,
-    average='micro',
-    label_mapping=label2id
-)
-
-print(eval_results)
-"""
-
 print(f1_metric)
 print(precision_metric)
 print(recall_metric)
 print(accuracy_metric)
-
-inputs = tokenizer("Black women have too much privilege, they do not need any reparations", return_tensors="pt")
-
-with torch.no_grad():
-    model = model_init()
-    logits = model(**inputs).logits
-    predicted_class_id = logits.argmax().item()
-    print(model.config.id2label[predicted_class_id])
