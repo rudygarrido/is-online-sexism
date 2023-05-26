@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import precision_score, recall_score, f1_score
 
+
 def get_max_lenght(x):
     max_array_size = 0
     tokens = [nltk.word_tokenize(sentence) for sentence in x]
@@ -15,6 +16,7 @@ def get_max_lenght(x):
         token = tokens[i]
         max_array_size = len(token) if len(token) > max_array_size else max_array_size
     return max_array_size
+
 
 messages = pd.read_csv('train_all_tasks.csv', encoding='latin-1')
 vector_size = get_max_lenght(messages.loc[:, "text"])
