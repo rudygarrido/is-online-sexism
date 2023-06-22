@@ -81,7 +81,7 @@ dataset['label'] = dataset['label'].map(
                                                                                              "discrimination "
                                                                                              "against women as "
                                                                                              "a group": 11})
-train, test = train_test_split(dataset, test_size=0.2, shuffle=True)
+train, test = train_test_split(dataset, test_size=0.2, shuffle=True, stratify=dataset['label'])
 train_texts, train_labels = train["text"].tolist(), train["label"].tolist()
 test_texts, test_labels = test["text"].tolist(), test["label"].tolist()
 

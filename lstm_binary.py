@@ -15,7 +15,7 @@ from sklearn.model_selection import train_test_split
 from torchmetrics.classification import BinaryF1Score, BinaryPrecision, BinaryRecall
 
 torch.manual_seed(1)
-random_state_value = 86
+random_state_value = 42
 test_split = 0.30
 val_split = 0.12
 tag_to_ix = {'sexist': 1, 'not sexist': 0}
@@ -42,10 +42,10 @@ def index_words(x, y, skip_top=0):
                 continue
             token_indexed.append(tokens_counted[token_word])
         x[i] = token_indexed
-        if y[i] == 'none':
+        if y[i] == 'not sexist':
             y[i] = 0
         else:
-            y[i] = int(y[i][0:1])
+            y[i] = 1
     return x, y, max_array_size, len(tokens_counted)
 
 
@@ -55,7 +55,7 @@ y = df.loc[:, "label_sexist"]
 test_sentence = "I hate women so much"
 x, y, max_words, tokens_size = index_words(x, y, 10)
 x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_split, random_state=random_state_value,
-                                                    shuffle=True)
+                                                    shuffle=True, stratify=y)
 
 
 class LSTMTagger(nn.Module):
@@ -78,7 +78,7 @@ class LSTMTagger(nn.Module):
         return tag_scores_forward
 
 
-def train(config, num_epochs=10, checkpoint_dir=None):
+def train(config, checkpoint_dir=None):
     model = LSTMTagger(config["embedding_dim"], config["hidden_dim"], tokens_size, len(tag_to_ix))
 
     device = "cpu"
@@ -97,7 +97,7 @@ def train(config, num_epochs=10, checkpoint_dir=None):
         model.load_state_dict(model_state)
         optimizer.load_state_dict(optimizer_state)
 
-    for epoch in range(num_epochs):
+    for epoch in range(config["num_epochs"]):
         running_loss = 0.0
         epoch_steps = 0
         for index, sentence in x_train.items():
@@ -124,15 +124,14 @@ def train(config, num_epochs=10, checkpoint_dir=None):
                 outputs = model(torch.tensor(sentence, dtype=torch.long))
                 label = torch.tensor([y_test.loc[index]] * len(sentence), dtype=torch.long)
                 prediction, inds = torch.max(outputs, dim=1)
-                prediction[prediction < 0] = 0
 
                 total += label.size(0)
+                precision += precision_metric(prediction, label)
+                recall += recall_metric(prediction, label)
+                f1 += f1_metric(prediction, label)
+
+                prediction[prediction < 0] = 0
                 correct += (prediction == label).sum().item()
-
-                precision += precision_metric(prediction.type(torch.int64), label)
-                recall += recall_metric(prediction.type(torch.int64), label)
-                f1 += f1_metric(prediction.type(torch.int64), label)
-
                 loss = loss_function(outputs, label)
                 val_loss += loss.cpu().numpy()
                 val_steps += 1
@@ -154,38 +153,36 @@ def test_metrics(model, device="cpu"):
             predicted_label = model(torch.tensor(sentence, dtype=torch.long))
             label = torch.tensor([y_test.loc[index]] * len(sentence), dtype=torch.long)
             prediction, inds = torch.max(predicted_label, dim=1)
+
+            precision += precision_metric(prediction, label)
+            recall += recall_metric(prediction, label)
+            f1 += f1_metric(prediction, label)
+
             prediction[prediction < 0] = 0
-
-            precision += precision_metric(prediction.type(torch.int64), label)
-
-            recall += recall_metric(prediction.type(torch.int64), label)
-
-            f1 += f1_metric(prediction.type(torch.int64), label)
-
             total_acc += (predicted_label.argmax(1) == label).sum().item()
             total_count += label.size(0)
 
     return total_acc / total_count, (precision / len(x_test)).item(), (recall / len(x_test)).item(), (
-                f1 / len(x_test)).item()
+            f1 / len(x_test)).item()
 
 
-def main(num_samples=10, max_num_epochs=10, gpus_per_trial=2, checkpoint_dir=None):
+def main(num_samples=1, max_num_epochs=10, gpus_per_trial=2, checkpoint_dir=None):
     config = {
         "lr": tune.loguniform(1e-4, 1e-1),
         "hidden_dim": tune.choice([8, 16, 32, 64]),
         "embedding_dim": tune.choice([8, 16, 32, 64]),
+        "num_epochs": tune.choice([3, 4, 5, 6, 7, 8])
     }
     scheduler = ASHAScheduler(
         metric="loss",
         mode="min",
-        max_t=max_num_epochs,
         grace_period=1,
         reduction_factor=2)
     reporter = CLIReporter(
         metric_columns=["loss", "accuracy", "precision", "recall", "f1", "training_iteration"
                         ])
     result = tune.run(
-        partial(train, num_epochs=max_num_epochs),
+        partial(train),
         resources_per_trial={"cpu": 12, "gpu": gpus_per_trial},
         config=config,
         num_samples=num_samples,

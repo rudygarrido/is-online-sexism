@@ -27,7 +27,8 @@ messages['text_clean'] = messages['text'].apply(lambda x: gensim.utils.simple_pr
 
 messages['label_sexist'] = messages['label_sexist'].map({'sexist': 1, 'not sexist': 0})
 
-X_train, X_test, y_train, y_test = train_test_split(messages['text_clean'], messages['label_sexist'], test_size=0.2)
+X_train, X_test, y_train, y_test = train_test_split(messages['text_clean'], messages['label_sexist'], test_size=0.2,
+                                                    stratify=messages['label_sexist'])
 
 w2v_model = gensim.models.Word2Vec(X_train,
                                    vector_size=vector_size,

@@ -48,7 +48,7 @@ dataset.drop(labels=["rewire_id", "label_category", "label_vector"], axis=1, inp
 dataset.rename(columns={"label_sexist": "label"}, inplace=True)
 dataset['label'] = dataset['label'].map(
     {'sexist': 1, 'not sexist': 0})
-train, test = train_test_split(dataset, test_size=0.2, shuffle=True)
+train, test = train_test_split(dataset, test_size=0.2, shuffle=True, stratify=dataset['label'])
 train_texts, train_labels = train["text"].tolist(), train["label"].tolist()
 test_texts, test_labels = test["text"].tolist(), test["label"].tolist()
 
