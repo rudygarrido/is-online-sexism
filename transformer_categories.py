@@ -94,13 +94,10 @@ trainer = Trainer(
     compute_metrics=compute_metrics,
 )
 
-trainer.hyperparameter_search(
+best_trial = trainer.hyperparameter_search(
     direction="maximize",
     backend="ray",
     n_trials=2
 )
 
-print(f1_metric)
-print(precision_metric)
-print(recall_metric)
-print(accuracy_metric)
+print(best_trial)
