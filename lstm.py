@@ -79,7 +79,7 @@ class LSTMTagger(nn.Module):
         return tag_scores_forward
 
 
-def train(config, num_epochs=10, checkpoint_dir=None):
+def train(config, checkpoint_dir=None):
     model = LSTMTagger(config["embedding_dim"], config["hidden_dim"], tokens_size, len(tag_to_ix))
 
     device = "cpu"
@@ -98,7 +98,7 @@ def train(config, num_epochs=10, checkpoint_dir=None):
         model.load_state_dict(model_state)
         optimizer.load_state_dict(optimizer_state)
 
-    for epoch in range(num_epochs):
+    for epoch in range(config["num_epochs"]):
         running_loss = 0.0
         epoch_steps = 0
         for index, sentence in x_train.items():
@@ -167,26 +167,26 @@ def test_metrics(model, device="cpu"):
             total_count += label.size(0)
 
     return total_acc / total_count, (precision / len(x_test)).item(), (recall / len(x_test)).item(), (
-                f1 / len(x_test)).item()
+            f1 / len(x_test)).item()
 
 
-def main(num_samples=10, max_num_epochs=10, gpus_per_trial=2, checkpoint_dir=None):
+def main(num_samples=10, gpus_per_trial=2, checkpoint_dir=None):
     config = {
         "lr": tune.loguniform(1e-4, 1e-1),
         "hidden_dim": tune.choice([8, 16, 32, 64]),
         "embedding_dim": tune.choice([8, 16, 32, 64]),
+        "num_epochs": tune.choice([3, 4, 5, 6, 7, 8])
     }
     scheduler = ASHAScheduler(
         metric="loss",
         mode="min",
-        max_t=max_num_epochs,
         grace_period=1,
         reduction_factor=2)
     reporter = CLIReporter(
         metric_columns=["loss", "accuracy", "precision", "recall", "f1", "training_iteration"
                         ])
     result = tune.run(
-        partial(train, num_epochs=max_num_epochs),
+        partial(train),
         resources_per_trial={"cpu": 12, "gpu": gpus_per_trial},
         config=config,
         num_samples=num_samples,
@@ -220,4 +220,4 @@ def main(num_samples=10, max_num_epochs=10, gpus_per_trial=2, checkpoint_dir=Non
           .format(accuracy, precission, recall, f1))
 
 
-main(max_num_epochs=3, gpus_per_trial=0)
+main(gpus_per_trial=0)
