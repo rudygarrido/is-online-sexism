@@ -11,6 +11,7 @@ id2label = {0: "none", 1: "1. threats, plans to harm and incitement", 2: "2. der
 label2id = {"none": 0, "1. threats, plans to harm and incitement": 1, "2. derogation": 2, "3. animosity": 3,
             "4. prejudiced discussions": 4}
 
+METRICS_AVERAGE_TYPE = "micro"
 
 class SexismDatasset(torch.utils.data.Dataset):
     def __init__(self, encodings, labels):
@@ -31,9 +32,9 @@ def compute_metrics(eval_pred):
     predictions = np.argmax(predictions, axis=-1)
 
     results = {}
-    results.update(f1_metric.compute(predictions=predictions, references=labels))
-    results.update(recall_metric.compute(predictions=predictions, references=labels))
-    results.update(precision_metric.compute(predictions=predictions, references=labels))
+    results.update(f1_metric.compute(predictions=predictions, references=labels, average=METRICS_AVERAGE_TYPE))
+    results.update(recall_metric.compute(predictions=predictions, references=labels, average=METRICS_AVERAGE_TYPE))
+    results.update(precision_metric.compute(predictions=predictions, references=labels, average=METRICS_AVERAGE_TYPE))
     results.update(accuracy_metric.compute(predictions=predictions, references=labels))
 
     return results
